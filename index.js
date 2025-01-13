@@ -52,6 +52,7 @@ async function run() {
     const db = client.db("plantNet-live")
     const usersCollection = db.collection("users")
     const plantsCollection = db.collection("plants")
+    const ordersCollection = db.collection("orders")
 
     // save or update a user in db
     app.post("/users/:email", async (req, res) => {
@@ -108,6 +109,23 @@ async function run() {
     // get all plants
     app.get("/plants", async(req, res)=>{
       const result = await plantsCollection.find().toArray()
+      res.send(result)
+    })
+
+    // get a specific data
+    app.get("/plant/:id", async (req, res)=>{
+      const id = req.params.id
+      const query = {_id: new ObjectId(id)}
+      const result = await plantsCollection.findOne(query)
+      res.send(result)
+    })
+
+
+    // order or payment related apis
+    // save an order to the db
+    app.post("/plants", verifyToken, async (req, res)=>{
+      const orderInfo = req.body
+      const result = await ordersCollection.insertOne(orderInfo)
       res.send(result)
     })
 
