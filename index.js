@@ -54,6 +54,30 @@ async function run() {
     const plantsCollection = db.collection("plants")
     const ordersCollection = db.collection("orders")
 
+
+    // verify admin middleware
+    const verifyAdmin = async (req, res, next) => {
+      // console.log("Data from verify token middle ware", req.user?.email);
+      const email = req.user?.email
+      const query = { email }
+      const result = await usersCollection.findOne(query)
+      if (!result || result?.role !== "admin") return res.status(403).send({ message: "Forbidden  access! Admin only actions" })
+
+      next()
+    }
+
+
+    // verify seller middleware
+    const verifySeller = async (req, res, next) => {
+      // console.log("Data from verify token middle ware", req.user?.email);
+      const email = req.user?.email
+      const query = { email }
+      const result = await usersCollection.findOne(query)
+      if (!result || result?.role !== "seller") return res.status(403).send({ message: "Forbidden  access! Deller only actions" })
+
+      next()
+    }
+
     // save or update a user in db
     app.post("/users/:email", async (req, res) => {
       const email = req.params.email
@@ -68,7 +92,7 @@ async function run() {
     })
 
     // manage user status and role
-    app.patch("/users/:email", verifyToken, async (req, res) => {
+    app.patch("/users/:email", verifyToken, verifySeller, async (req, res) => {
       const email = req.params.email
       const query = { email }
       const user = await usersCollection.findOne(query)
@@ -89,9 +113,28 @@ async function run() {
       res.send({ role: result?.role })
     })
 
+    // get all users 
+    app.get("/all-users/:email", verifyToken, verifyAdmin, async (req, res) => {
+      const email = req.params.email
+      const query = { email: { $ne: email } }
+      const result = await usersCollection.find(query).toArray()
+      res.send(result)
+    })
+
+    // update a user role and status 
+    app.patch("/user/role/:email", verifyToken, verifyAdmin, async (req, res) => {
+      const email = req.params.email
+      const { role } = req.body
+      const filter = { email }
+      const updateDoc = {
+        $set: { role, status: "Verified" },
+      }
+      const result = await usersCollection.updateOne(filter, updateDoc)
+      res.send(result)
+    })
 
 
-
+    // generate jwt
     app.post('/jwt', async (req, res) => {
       const email = req.body
       const token = jwt.sign(email, process.env.ACCESS_TOKEN_SECRET, {
@@ -131,6 +174,22 @@ async function run() {
     // get all plants
     app.get("/plants", async (req, res) => {
       const result = await plantsCollection.find().toArray()
+      res.send(result)
+    })
+
+    // get all plants 
+    app.get("/plants/seller", verifyToken, verifySeller, async (req, res) => {
+      const email = req.user.email
+      // const query = { email: { $ne: email } }
+      const result = await plantsCollection.find({ "seller.email": email }).toArray()
+      res.send(result)
+    })
+
+    // delete a plant from db by a seller
+    app.delete("/plants/:id", verifyToken, verifySeller, async (req, res) => {
+      const id = req.params.id
+      const query = {_id: new ObjectId(id)}
+      const result = await plantsCollection.deleteOne(query)
       res.send(result)
     })
 
@@ -182,6 +241,50 @@ async function run() {
           $project: { plants: 0 } // remove plants object property from order objects
         }
       ]).toArray()
+      res.send(result)
+    })
+
+    // get all orders for a specific seller
+    app.get("/seller-orders/:email", verifyToken, verifySeller, async (req, res) => {
+      const email = req.params.email
+      const query = { seller : email }
+      const result = await ordersCollection.aggregate([
+        {
+          $match: query, // match specific customers data only by email
+        },
+        {
+          $addFields: { plantId: { $toObjectId: "$plantId" } } //convert plant id string to objectId field 
+        },
+        {
+          $lookup: {               // go to a different collection and look for data
+            from: "plants",        // specify collection name to specify collection 
+            localField: "plantId", // local data that you want to match 
+            foreignField: "_id",   // foreign field name of that same data
+            as: "plants"           // returns the data as plants named array
+          },
+        },
+        { $unwind: "$plants" },  // unwind lookup results, return without array
+        {
+          $addFields: {    // add these fields in your object
+            name: "$plants.name",
+          }
+        },
+        {
+          $project: { plants: 0 } // remove plants object property from order objects
+        }
+      ]).toArray()
+      res.send(result)
+    })
+
+    // update a order status
+    app.patch("/orders/:id", verifyToken, verifySeller, async (req, res) => {
+      const id = req.params.id
+      const { status } = req.body
+      const filter = { _id : new ObjectId(id) }
+      const updateDoc = {
+        $set: { status },
+      }
+      const result = await ordersCollection.updateOne(filter, updateDoc)
       res.send(result)
     })
 
